@@ -25,31 +25,31 @@ class NESBasicCPUTests extends AnyFlatSpec with ChiselScalatestTester with Paral
   }
 
   it should "be able to pass 03-immediate.nes" in {
-    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/03-immediate.nes").getPath)).withAnnotations(if(sys.env.contains("CI")) NOVCDAnnos else DefaultAnnos).runUntilStop(timeout = 10000000)
+    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/03-immediate.nes").getPath)).withAnnotations(if(sys.env.contains("CI")) NOVCDAnnos else DefaultAnnos).runUntilAssertFail(10000000)
   }
 
   it should "be able to pass 04-zero_page.nes" in {
-    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/04-zero_page.nes").getPath)).withAnnotations(if(sys.env.contains("CI")) NOVCDAnnos else DefaultAnnos).runUntilStop(timeout = 10000000)
+    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/04-zero_page.nes").getPath)).withAnnotations(if(sys.env.contains("CI")) NOVCDAnnos else DefaultAnnos).runUntilAssertFail(10000000)
   }
 
   it should "be able to pass 05-zp_xy.nes" in {
-    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/05-zp_xy.nes").getPath)).withAnnotations(if(sys.env.contains("CI")) NOVCDAnnos else DefaultAnnos).runUntilStop(timeout = 10000000)
+    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/05-zp_xy.nes").getPath)).withAnnotations(if(sys.env.contains("CI")) NOVCDAnnos else DefaultAnnos).runUntilAssertFail(10000000)
   }
 
   it should "be able to pass 06-absolute.nes" in {
-    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/06-absolute.nes").getPath)).withAnnotations(if(sys.env.contains("CI")) NOVCDAnnos else DefaultAnnos).runUntilStop(timeout = 10000000)
+    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/06-absolute.nes").getPath)).withAnnotations(if(sys.env.contains("CI")) NOVCDAnnos else DefaultAnnos).runUntilAssertFail(10000000)
   }
 
   it should "be able to pass 07-abs_xy.nes" in {
-    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/07-abs_xy.nes").getPath)).withAnnotations(if(sys.env.contains("CI")) NOVCDAnnos else DefaultAnnos).runUntilStop(timeout = 10000000)
+    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/07-abs_xy.nes").getPath)).withAnnotations(if(sys.env.contains("CI")) NOVCDAnnos else DefaultAnnos).runUntilAssertFail(10000000)
   }
 
   it should "be able to pass 08-ind_x.nes" in {
-    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/08-ind_x.nes").getPath)).withAnnotations(if(sys.env.contains("CI")) NOVCDAnnos else DefaultAnnos).runUntilStop(timeout = 10000000)
+    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/08-ind_x.nes").getPath)).withAnnotations(if(sys.env.contains("CI")) NOVCDAnnos else DefaultAnnos).runUntilAssertFail(10000000)
   }
 
   it should "be able to pass 09-ind_y.nes" in {
-    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/09-ind_y.nes").getPath)).withAnnotations(NOVCDAnnos).runUntilStop(timeout = 10000000)
+    test(new ROMTester(romPath = getClass.getResource("/instr_test-v5/rom_singles/09-ind_y.nes").getPath)).withAnnotations(NOVCDAnnos).runUntilAssertFail(10000000)
   }
 
   it should "be able to pass 10-branches.nes" in {
