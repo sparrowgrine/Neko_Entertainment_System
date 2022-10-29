@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.experimental.dataview.DataView
 import chisel3.util._
 import ee.catgirl.nes.util.{AsyncROM, ROMInfo}
-import org.scalatest.Assertions._
+import org.scalatest.Assertions.fail
 
 private class MMC1Shreg extends Module with RequireAsyncReset {
   val io = IO(new Bundle {
@@ -19,7 +19,7 @@ private class MMC1Shreg extends Module with RequireAsyncReset {
     regs := Fill(4,0.B)
   }
   .elsewhen(io.en) {
-    regs := Cat(regs(2),regs(1),regs(0),io.in)
+    regs := Cat(io.in,regs(3),regs(2),regs(1))
   }
   io.state := regs
 }
@@ -57,7 +57,7 @@ private class MMC1Emulator extends Module with RequireAsyncReset {
   val shregEn = io.cpuAB(15) & wePosEdge
   val resetMMC1 = (io.cpuAB(15) & io.cpuWE & io.cpuDI(7))
   val shregClear = resetMMC1 | (writeCounter === 5.U)
-  val stateUpdate = Cat(shreg.io.state,io.cpuDI(0))
+  val stateUpdate = Cat(io.cpuDI(0),shreg.io.state)
   shreg.io.in := io.cpuDI(0)
   shreg.io.clear := shregClear
   shreg.io.en := shregEn
@@ -75,22 +75,17 @@ private class MMC1Emulator extends Module with RequireAsyncReset {
   }
 
   when((writeCounter === 4.U) & shregEn) {
-    printf("Mapper update!\n")
     switch(io.cpuAB(14,13)) {
       is(0.U) {
-        printf("Updating controlReg to %b\n",stateUpdate)
         controlReg := stateUpdate.asTypeOf(controlReg)
       }
       is(1.U) {
-        printf("Updating chrBank0Reg to %b\n",stateUpdate)
         chrBank0Reg := stateUpdate
       }
       is(2.U) {
-        printf("Updating chrBank1Reg to %b\n",stateUpdate)
         chrBank1Reg := stateUpdate
       }
       is(3.U) {
-        printf("Updating prgBankReg to %b\n",stateUpdate)
         prgBankReg := stateUpdate.asTypeOf(prgBankReg)
       }
     }
@@ -120,7 +115,7 @@ class MMC1(romInfo : ROMInfo, romData : Array[Byte]) extends Mapper(romInfo, rom
   val prgRomStart = 16 + (if (romInfo.hasTrainer) 512 else 0)
   val prgRomEnd = prgRomStart + romInfo.prgROMSize * 16384
   val prgRomData = romData.slice(prgRomStart, prgRomEnd).map(b => if (b < 0) BigInt(b + 256) else BigInt(b))
-  val prgRom = Module(new AsyncROM("cpu_rom", prgRomData.toSeq))
+  val prgRom = Module(new AsyncROM("cpu_rom", prgRomData.toSeq, Some(8)))
 
   val chrRomStart = prgRomEnd
   var chrRomEnd = chrRomStart + romInfo.chrROMSize * 8192
@@ -131,7 +126,7 @@ class MMC1(romInfo : ROMInfo, romData : Array[Byte]) extends Mapper(romInfo, rom
     chrRomEnd += 8192
     Seq.fill(8192) {BigInt(0)}
   }
-  val chrRom = Module(new AsyncROM("ppu_rom", chrRomData))
+  val chrRom = Module(new AsyncROM("ppu_rom", chrRomData, Some(8)))
 
   val prgRam = Mem(8192, UInt(8.W))
   val sysRam = Mem(2048, UInt(8.W))

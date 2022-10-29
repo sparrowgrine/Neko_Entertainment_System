@@ -54,19 +54,37 @@ class ROMTester(val romPath : String) extends BasicTester with RequireAsyncReset
   val failGeneric = RegInit(0.B)
   val failSpecific = RegInit(0.B)
 
-
   assert(failGeneric === 0.B, "Failure encountered in test! :(")
   assert(failSpecific === 0.B, "Failure encountered in test! :(")
 
-
   val startReg = RegInit(0.B)
-  val lastPrintAddr = RegInit(0.U(16.W))
+  val lastPrintAddr = RegInit(0x6003.U(16.W))
+
+  val debugPrintBegin = RegInit(VecInit.fill(3) { 0.B })
+  val debugPrintReg = RegInit(0.B)
+
+  when(!debugPrintBegin.asUInt.andR) {
+    when((cpu.io.DO === 0xDE.U) & (cpu.io.AB === 0x6001.U) & cpu.io.WE) {
+      debugPrintBegin(0) := 1.B
+    }
+    when((cpu.io.DO === 0xB0.U) & (cpu.io.AB === 0x6002.U) & cpu.io.WE) {
+      debugPrintBegin(1) := 1.B
+    }
+    when((cpu.io.DO === 0x61.U) & (cpu.io.AB === 0x6003.U) & cpu.io.WE) {
+      debugPrintBegin(2) := 1.B
+    }
+  }
+
+  when(debugPrintBegin.asUInt.andR & ~debugPrintReg) {
+    printf("inst_test detected! Beginning Debug Output\n")
+    debugPrintReg := 1.B
+  }
+
 
   when(~startReg & (cpu.io.DO === 0x80.U) & (cpu.io.AB === 0x6000.U) & cpu.io.WE) {
     startReg := 1.B
     printf("Test Started!!\n")
   }
-
 
   when(startReg & ((cpu.io.AB === 0x6000.U) & (cpu.io.DO <= 0x7F.U) & cpu.io.WE) & ~failGeneric & ~failSpecific) {
     when(cpu.io.DO === 0.U) {
@@ -81,9 +99,11 @@ class ROMTester(val romPath : String) extends BasicTester with RequireAsyncReset
       failSpecific := 1.B
     }
   }
-
-  when((cpu.io.AB >= 0x6004.U ) & (cpu.io.AB < 0x8000.U ) & cpu.io.DO =/= 0x0.U) {
-    when(lastPrintAddr =/= cpu.io.AB) {
+  when(startReg & ((cpu.io.AB === 0x6000.U) & (cpu.io.DO === 0x81.U) & cpu.io.WE) & ~failGeneric & ~failSpecific) {
+    printf("Oh God Oh Fuck Reset Needed!!!")
+  }
+    when(debugPrintBegin.asUInt.andR & (cpu.io.AB >= 0x6004.U ) & (cpu.io.AB < 0x6FFF.U ) & cpu.io.DO =/= 0x0.U) {
+    when((lastPrintAddr ) =/= cpu.io.AB) {
       lastPrintAddr := cpu.io.AB
       printf("%c", cpu.io.DO)
     }

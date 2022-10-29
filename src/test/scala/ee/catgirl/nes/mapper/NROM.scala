@@ -8,12 +8,12 @@ class NROM(romInfo : ROMInfo, romData : Array[Byte]) extends Mapper(romInfo, rom
   val prgRomStart = 16 + (if(romInfo.hasTrainer) 512 else 0)
   val prgRomEnd = prgRomStart+romInfo.prgROMSize*16384
   val prgRomData = romData.slice(prgRomStart,prgRomEnd).map(b => if (b < 0) BigInt(b+256) else BigInt(b))
-  val prgRom = Module(new AsyncROM("cpu_rom",prgRomData.toSeq))
+  val prgRom = Module(new AsyncROM("cpu_rom",prgRomData.toSeq,Some(8)))
 
   val chrRomStart = prgRomEnd
   val chrRomEnd = chrRomStart + romInfo.chrROMSize*8192
   val chrRomData = romData.slice(chrRomStart, chrRomEnd).map(b => if (b < 0) BigInt(b + 256) else BigInt(b))
-  val chrRom = Module(new AsyncROM("ppu_rom", chrRomData.toSeq))
+  val chrRom = Module(new AsyncROM("ppu_rom", chrRomData.toSeq,Some(8)))
 
   val prgRam = Mem(8192,UInt(8.W))
   val sysRam = Mem(2048,UInt(8.W))

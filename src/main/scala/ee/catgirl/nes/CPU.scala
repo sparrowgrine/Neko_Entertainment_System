@@ -307,7 +307,7 @@ object CPUState extends ChiselEnum {
 //    when((PC =/= pc_temp + pc_inc) && (state in DECODE)) {
 //      printf("PC: %x\n",pc_temp)
 //    }
-    PC := PC_temp +& PC_inc
+    PC := Mux(state in JMPI1, Cat(PC_temp(15,8),PC_temp(7,0) + PC_inc) ,PC_temp +& PC_inc)
   }
 
   val ZEROPAGE = 0.U(8.W)
