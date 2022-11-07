@@ -55,8 +55,9 @@ class SyncROMBlackBox(blackboxName: String, table: Seq[BigInt], widthOverride: O
   def tableEntry2InitStr(value: BigInt, addr: BigInt): String = {
     s"mem[$addrWidth'b${addr.toString(2)}] = $dataWidth'h${value.toString(16)};"
   }
-  val tableStrings = table.zipWithIndex.map { case (t, i) => tableEntry2InitStr(t, BigInt(i))}
-  val tableString  = tableStrings.foldLeft("\n") { case (str, entry) => str + "      " + entry + "\n"}
+
+  val tableStringBuilder = new mutable.StringBuilder(20 * table.length)
+  table.zipWithIndex.foreach { case (t, i) => tableStringBuilder ++= tableEntry2InitStr(t, BigInt(i)) }
 
   val verilog : String =
     s"""
@@ -68,7 +69,8 @@ class SyncROMBlackBox(blackboxName: String, table: Seq[BigInt], widthOverride: O
        |  reg [${(dataWidth - 1).max(0)}:0] mem [${table.length-1}:0];
        |  always @(posedge clock)
        |    data <= mem[addr];
-       |  initial begin$tableString
+       |  initial begin
+       |    ${tableStringBuilder.mkString}
        |  end
        |endmodule
      """.stripMargin

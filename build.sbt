@@ -5,10 +5,9 @@ ThisBuild / version          := "0.0.1"
 ThisBuild / organization     := "ee.catgirl"
 ThisBuild / transitiveClassifiers := Seq(Artifact.SourceClassifier)
 
-resolvers ++= Seq(
-  Resolver.sonatypeRepo("snapshots"),
-  Resolver.sonatypeRepo("releases")
-)
+resolvers ++= Resolver.sonatypeOssRepos("snapshots")
+resolvers ++= Resolver.sonatypeOssRepos("releases")
+
 
 lazy val root = (project in file("."))
   .settings(

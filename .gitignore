@@ -1,0 +1,12 @@
+.idea
+.bsp
+.bloop
+.metals
+.vscode
+genrtl
+test_run_dir
+target
+project/project
+project/target
+project/active.json
+project/metals.sbt

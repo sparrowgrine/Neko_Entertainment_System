@@ -1,12 +1,10 @@
 package ee.catgirl.nes.mapper
 
 import chisel3._
-import chisel3.experimental.dataview.DataView
 import chisel3.util._
 import ee.catgirl.nes.util.{AsyncROM, ROMInfo}
-import org.scalatest.Assertions.fail
 
-private class MMC1Shreg extends Module with RequireAsyncReset {
+private class MMC1Shreg extends Module {
   val io = IO(new Bundle {
     val in = Input(Bool())
     val clear = Input(Bool())
@@ -24,7 +22,7 @@ private class MMC1Shreg extends Module with RequireAsyncReset {
   io.state := regs
 }
 
-private class MMC1Emulator extends Module with RequireAsyncReset {
+private class MMC1Emulator extends Module {
   val io = IO(new Bundle {
     val cpuAB = Input(UInt(16.W))
     val cpuDI = Input(UInt(8.W))
@@ -177,5 +175,6 @@ class MMC1(romInfo : ROMInfo, romData : Array[Byte]) extends Mapper(romInfo, rom
   val chrRomAddr = Mux(io.ppuAB(13), Cat(mmc1.io.prgRomBank1,io.ppuAB(12, 0)),Cat(mmc1.io.prgRomBank0,io.ppuAB(13, 0)))
   chrRom.io.addr := chrRomAddr
   io.ppuDO := chrRom.io.data
+  io.cpuIRQ := false.B
 
 }

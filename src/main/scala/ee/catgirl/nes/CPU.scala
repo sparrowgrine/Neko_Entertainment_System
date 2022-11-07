@@ -6,7 +6,7 @@ import chisel3.util._
 
 import scala.language.implicitConversions
 
-class ALU extends Module with RequireAsyncReset {
+class ALU extends Module {
   val io = IO(new Bundle {
     val right = Input(Bool())
     val op = Input(UInt(4.W))
@@ -69,7 +69,7 @@ class ALU extends Module with RequireAsyncReset {
   io.Z := ~OUT.orR
 }
 
-class CPU extends Module with RequireAsyncReset {
+class CPU extends Module {
 
   trait Innable[A] {
     def ===(that: UInt): Bool
@@ -93,6 +93,7 @@ class CPU extends Module with RequireAsyncReset {
     }
   }
 
+
   val io = IO(new Bundle {
     val AB = Output(UInt(16.W))
     val DI = Input(UInt(8.W))
@@ -101,12 +102,18 @@ class CPU extends Module with RequireAsyncReset {
     val IRQ = Input(Bool())
     val NMI = Input(Bool())
     val RDY = Input(Bool())
+    val CE = Input(Bool())
   })
 
   val PC = Reg(UInt(16.W))
   val ABL = Reg(UInt(8.W))
   val ABH = Reg(UInt(8.W))
   val ADD = Wire(UInt(8.W))
+
+  val AIHOLD = Reg(UInt(8.W))
+  val BIHOLD = Reg(UInt(8.W))
+  val AIMUX = Wire(UInt(8.W))
+  val BIMUX = Wire(UInt(8.W))
 
   val DIHOLD = Reg(UInt(8.W))
   val DIMUX = Wire(UInt(8.W))
@@ -262,6 +269,14 @@ object CPUState extends ChiselEnum {
 
   val state = RegInit(BRK0)
 
+  val lastState = RegInit(ZPX1)
+
+  when(io.CE) {
+    lastState := state
+  }
+
+//  assert(state =/= lastState)
+
   when(state in DECODE) {
       when((io.IRQ & ~I) | NMI_edge) {
         PC_temp := Cat(ABH, ABL)
@@ -269,685 +284,701 @@ object CPUState extends ChiselEnum {
         PC_temp := PC
       }
     }
-    .elsewhen(state in (JMP1, JMPI1, JSR3, RTS3, RTI4)) {
-      PC_temp := Cat(DIMUX, ADD)
-    }
-    .elsewhen(state in BRA1) {
-      PC_temp := Cat(ABH, ADD)
-    }
-    .elsewhen(state in BRA2) {
-      PC_temp := Cat(ADD, PCL)
-    }
-    .elsewhen(state in BRK2) {
-      PC_temp := Mux(res, 0xfffc.U(16.W), Mux(NMI_edge, 0xfffa.U(16.W), 0xfffe.U(16.W)))
-    }
-    .otherwise {
-      PC_temp := PC
-    }
-
-  when(state in DECODE) {
-    when((~I & io.IRQ) | NMI_edge) {
-      PC_inc := 0.B
-    }
-    .otherwise {
-      PC_inc := 1.B
-    }
-  }
-  .elsewhen(state in (ABS0, ABSX0, FETCH, BRA0, BRA2, BRK3, JMPI1, JMP1, RTI4, RTS3)) {
-    PC_inc := 1.B
-  }
-  .elsewhen(state in BRA1) {
-    PC_inc := ~(CO ^ backwards)
-  }
-  .otherwise {
-    PC_inc := 0.B
-  }
-
-  when(io.RDY) {
-//    when((PC =/= pc_temp + pc_inc) && (state in DECODE)) {
-//      printf("PC: %x\n",pc_temp)
-//    }
-    PC := Mux(state in JMPI1, Cat(PC_temp(15,8),PC_temp(7,0) + PC_inc) ,PC_temp +& PC_inc)
-  }
-
-  val ZEROPAGE = 0.U(8.W)
-  val STACKPAGE = 1.U(8.W)
-
-  when(state in (ABSX1, INDX3, INDY2, JMP1, JMPI1, RTI4, ABS1)) {
-    io.AB := Cat(DIMUX, ADD)
-  }
-  .elsewhen(state in (BRA2, INDY3, ABSX2)) {
-    io.AB := Cat(ADD, ABL)
-  }
-  .elsewhen(state in BRA1) {
-    io.AB := Cat(ABH, ADD)
-  }
-  .elsewhen(state in (JSR0, PUSH1, RTS0, RTI0, BRK0)) {
-    io.AB := Cat(STACKPAGE,regfile)
-  }
-  .elsewhen(state in (BRK1, JSR1, PULL1, RTS1, RTS2, RTI1, RTI2, RTI3, BRK2)) {
-    io.AB := Cat(STACKPAGE,ADD)
-  }
-  .elsewhen(state in (INDY1, INDX1, ZPX1, INDX2)) {
-    io.AB := Cat(ZEROPAGE,ADD)
-  }
-  .elsewhen(state in (ZP0, INDY0)) {
-    io.AB := Cat(ZEROPAGE,DIMUX)
-  }
-  .elsewhen(state in (REG, READ, WRITE)) {
-    io.AB := Cat(ABH,ABL)
-  }
-  .otherwise {
-    io.AB := PC
-  }
-
-  when(io.RDY && state =/= PUSH0 && state =/= PUSH1 && state =/= PULL0 && state =/= PULL1 && state =/= PULL2) {
-    ABL := io.AB(7,0)
-    ABH := io.AB(15,8)
-  }
-
-  when(state in WRITE) {
-    io.DO := ADD
-  }
-  .elsewhen(state in (JSR0, BRK0)) {
-    io.DO := PCH
-  }
-  .elsewhen(state in (JSR1, BRK1)) {
-    io.DO := PCL
-  }
-  .elsewhen(state in PUSH1) {
-    io.DO := Mux(php, P, ADD)
-  }
-  .elsewhen(state in BRK2) {
-    io.DO := Mux((io.IRQ | NMI_edge), P & "b11101111".U(8.W), P)
-  }
-  .otherwise {
-    io.DO := regfile
-  }
-
-  when(state in (BRK0, BRK1, BRK2, JSR0, JSR1, PUSH1, WRITE)) {
-    io.WE := 1.B
-  }
-  .elsewhen(state in (INDX3, INDY3, ABSX2, ABS1, ZPX1, ZP0)) {
-    io.WE := store
-  }
-  .otherwise {
-    io.WE := 0.B
-  }
-
-  val write_register = Wire(Bool())
-
-  when(state in DECODE) {
-    write_register := load_reg & ~plp
-  }
-  .elsewhen(state in (PULL1, RTS2, RTI3, BRK3, JSR0, JSR2)) {
-    write_register := 1.B
-  }
-  .otherwise {
-    write_register := 0.B
-  }
-
-  adj_bcd := 0.B
-
-  val adjl = Wire(UInt(4.W))
-  val adjh = Wire(UInt(4.W))
-
-  adjl := Lookup(Cat(adj_bcd, adc_bcd, HC),0.U,IndexedSeq(
-    BitPat("b100") -> 10.U,
-    BitPat("b111") -> 6.U
-  ))
-
-  adjh := Lookup(Cat(adj_bcd, adc_bcd, CO), 0.U, IndexedSeq(
-    BitPat("b100") -> 10.U,
-    BitPat("b111") -> 6.U
-  ))
-
-  when(write_register & io.RDY) {
-    AXYS(regsel) := Mux(state in JSR0, DIMUX, Cat(ADD(7, 4) + adjh, ADD(3, 0) + adjl))
-  }
-
-  when(state in (INDY1, INDX0, ZPX0, ABSX0)) {
-    regsel := Mux(index_y,SEL_Y,SEL_X)
-  }
-  .elsewhen(state in DECODE) {
-    regsel := dst_reg
-  }
-  .elsewhen(state in (BRK0, BRK3, JSR0, JSR2, PULL0, PULL1, PUSH1, RTI0, RTI3, RTS0, RTS2)) {
-    regsel := SEL_S
-  }
-  .otherwise {
-    regsel := src_reg
-  }
-
-  val alu : ALU = Module(new ALU())
-  alu.io.op := alu_op
-  alu.io.right := alu_shift_right
-  alu.io.AI := AI
-  alu.io.BI := BI
-  alu.io.CI := CI
-  alu.io.BCD := /*adc_bcd & (state in FETCH)*/ false.B // BCD Disabled in NES CPU.
-  CO := alu.io.CO
-  ADD := alu.io.OUT
-  AV := alu.io.V
-  AZ := alu.io.Z
-  AN := alu.io.N
-  HC := alu.io.HC
-  alu.io.RDY := io.RDY
-
-  when(state in (FETCH, REG, READ)) {
-    alu_op := op
-  }
-  .elsewhen(state in BRA1) {
-    alu_op := Mux(backwards, OP_SUB, OP_ADD)
-  }
-  .elsewhen(state in (PUSH1, BRK0, BRK1, BRK2, JSR0, JSR1)) {
-    alu_op := OP_SUB
-  }
-  .otherwise {
-    alu_op := OP_ADD
-  }
-
-  when(state in (FETCH, REG, READ)) {
-    alu_shift_right := shift_right
-  }
-  .otherwise {
-    alu_shift_right := 0.U
-  }
-
-  when(io.RDY) {
-    backwards := DIMUX(7)
-  }
-
-  when(state in (JSR1, RTS1, RTI1, RTI2, BRK1, BRK2, INDX1)) {
-    AI := ADD
-  }
-  .elsewhen(state in (REG, ZPX0, INDX0, ABSX0, RTI0, RTS0, JSR0, JSR2, BRK0, PULL0, INDY1, PUSH0, PUSH1)) {
-    AI := regfile
-  }
-  .elsewhen(state in (BRA0, READ)) {
-    AI := DIMUX
-  }
-  .elsewhen(state in BRA1) {
-    AI := ABH
-  }
-  .elsewhen(state in FETCH) {
-    AI := Mux(load_only, 0.U, regfile)
-  }
-  .otherwise {
-    AI := 0.U
-  }
-
-  when(state in (BRA1, RTS1, RTI0, RTI1, RTI2, INDX1, READ, REG, JSR0, JSR1, JSR2, BRK0, BRK1, BRK2, PUSH0, PUSH1, PULL0, RTS0)) {
-    BI := 0.U
-  }
-  .elsewhen(state in BRA0) {
-    BI := PCL
-  }
-  .otherwise {
-    BI := DIMUX
-  }
-
-  when(state in (INDY2, BRA1, ABSX1)) {
-    CI := CO
-  }
-  .elsewhen(state in (READ,REG)) {
-    CI := Mux(rotate,C,Mux(shift,0.U,inc))
-  }
-  .elsewhen(state in FETCH) {
-      CI := Mux(rotate, C, Mux(compare, 1.U, Mux(shift | load_only, 0.U,C)))
-  }
-  .elsewhen(state in (PULL0, RTI0, RTI1, RTI2, RTS0, RTS1, INDY0, INDX1)) {
-    CI := 1.U
-  }
-  .otherwise {
-    CI := 0.U
-  }
-
-  when(shift && (state in WRITE)) {
-    C := CO
-  }
-  .elsewhen(state in RTI2) {
-    C := DIMUX(0)
-  }
-  .elsewhen(~write_back & (state in DECODE)) {
-    when(adc_sbc | shift | compare) {
-      C := CO
-    }
-    .elsewhen(plp) {
-      C := ADD(0)
-    }
-    .otherwise {
-      when(sec) {
-        C := 1.U
+      .elsewhen(state in(JMP1, JMPI1, JSR3, RTS3, RTI4)) {
+        PC_temp := Cat(DIMUX, ADD)
       }
-      when(clc) {
-        C := 0.U
+      .elsewhen(state in BRA1) {
+        PC_temp := Cat(ABH, ADD)
       }
-    }
-  }
+      .elsewhen(state in BRA2) {
+        PC_temp := Cat(ADD, PCL)
+      }
+      .elsewhen(state in BRK2) {
+        PC_temp := Mux(res, 0xfffc.U(16.W), Mux(NMI_edge, 0xfffa.U(16.W), 0xfffe.U(16.W)))
+      }
+      .otherwise {
+        PC_temp := PC
+      }
 
-  when(state in WRITE) {
-    Z := AZ
-  }
-  .elsewhen(state in RTI2) {
-    Z := DIMUX(1)
-  }
-  .elsewhen(state in DECODE) {
-    when(plp) {
-      Z := ADD(1)
-    }
-    .elsewhen((load_reg & (regsel =/= SEL_S)) | compare | bit_ins) {
-      Z := AZ
-    }
-  }
-
-  when(state in WRITE) {
-    N := AN
-  }
-  .elsewhen(state in RTI2) {
-    N := DIMUX(7)
-  }
-  .elsewhen(state in DECODE) {
-    when(plp) {
-      N := ADD(7)
-    }
-    .elsewhen((load_reg & (regsel =/= SEL_S)) | compare) {
-      N := AN
-    }
-  }
-  .elsewhen((state in FETCH) && bit_ins) {
-    N := DIMUX(7)
-  }
-
-  when(state in BRK3) {
-    I := 1.U
-  }
-  .elsewhen(state in RTI2) {
-    I := DIMUX(2)
-  }
-  .elsewhen(state in REG) {
-    when(sei) {
-      I := 1.U
-    }
-    when(cli) {
-      I := 0.U
-    }
-  }
-  .elsewhen(state in DECODE) {
-    when(plp) {
-      I := ADD(2)
-    }
-  }
-
-  when(state in RTI2) {
-    D := DIMUX(3)
-  }
-  .elsewhen(state in DECODE) {
-    when(sed) {
-      D := 1.U
-    }
-    when(cld) {
-      D := 0.U
-    }
-    when(plp) {
-      D := ADD(3)
-    }
-  }
-
-  when(state in RTI2) {
-    V := DIMUX(6)
-  }
-  .elsewhen(state in DECODE) {
-    when(adc_sbc) {
-      V := AV
-    }
-    when(clv) {
-      V := 0.U
-    }
-    when(plp) {
-      V := ADD(6)
-    }
-  }
-  .elsewhen((state in FETCH) & bit_ins) {
-    V := DIMUX(6)
-  }
-
-  when(io.RDY) {
-    when(state in (PULL0, PUSH0)) {
-       IRHOLD := DIMUX
-       IRHOLD_valid := 1.B
-     }
-     .elsewhen(state in DECODE) {
-       IRHOLD_valid := 0.B
-     }
-  }
-
-  IR := Mux((io.IRQ & ~I) | NMI_edge, 0.U, Mux(IRHOLD_valid, IRHOLD, DIMUX))
-
-  when(io.RDY) {
-    DIHOLD := io.DI
-  }
-
-  DIMUX := Mux(~io.RDY, DIHOLD, io.DI)
-
-  when(io.RDY) {
     when(state in DECODE) {
-      state := Lookup(IR,state,IndexedSeq(
-        BitPat("b0000_0000") -> BRK0,
-        BitPat("b0010_0000") -> JSR0,
-        BitPat("b0010_1100") -> ABS0,  // BIT abs
-        BitPat("b0100_0000") -> RTI0,
-        BitPat("b0100_1100") -> JMP0,
-        BitPat("b0110_0000") -> RTS0,
-        BitPat("b0110_1100") -> JMPI0,
-        BitPat("b0?00_1000") -> PUSH0,
-        BitPat("b0?10_1000") -> PULL0,
-        BitPat("b0??1_1000") -> REG,   // CLC, SEC, CLI, SEI
-        BitPat("b1??0_00?0") -> FETCH, // IMM
-        BitPat("b1??0_1100") -> ABS0,  // X/Y abs
-        BitPat("b1???_1000") -> REG,   // DEY, TYA, ...
-        BitPat("b???0_0001") -> INDX0,
-        BitPat("b???0_01??") -> ZP0,
-        BitPat("b???0_1001") -> FETCH, // IMM
-        BitPat("b???0_1101") -> ABS0,  // even E column
-        BitPat("b???0_1110") -> ABS0,  // even E column
-        BitPat("b???1_0000") -> BRA0,  // odd 0 column
-        BitPat("b???1_0001") -> INDY0, // odd 1 column
-        BitPat("b???1_01??") -> ZPX0,  // odd 4,5,6,7 columns
-        BitPat("b???1_1001") -> ABSX0, // odd 9 column
-        BitPat("b???1_11??") -> ABSX0, // odd C, D, E, F columns
-        BitPat("b????_1010") -> REG   // <shift> A, TXA, ...  NOP
-      ))
+      when((~I & io.IRQ) | NMI_edge) {
+        PC_inc := 0.B
+      }
+        .otherwise {
+          PC_inc := 1.B
+        }
     }
-    .elsewhen(state in ZP0) {
-      state := Mux(write_back, READ, FETCH)
-    }.elsewhen(state in ZPX0) {
-      state := ZPX1
+      .elsewhen(state in(ABS0, ABSX0, FETCH, BRA0, BRA2, BRK3, JMPI1, JMP1, RTI4, RTS3)) {
+        PC_inc := 1.B
+      }
+      .elsewhen(state in BRA1) {
+        PC_inc := ~(CO ^ backwards)
+      }
+      .otherwise {
+        PC_inc := 0.B
+      }
+
+    when(io.RDY & io.CE) {
+      //    when((PC =/= pc_temp + pc_inc) && (state in DECODE)) {
+      //      printf("PC: %x\n",pc_temp)
+      //    }
+      PC := Mux(state in JMPI1, Cat(PC_temp(15, 8), PC_temp(7, 0) + PC_inc), PC_temp +& PC_inc)
     }
-    .elsewhen(state in ZPX1) {
-      state := Mux(write_back,READ,FETCH)
+
+    val ZEROPAGE = 0.U(8.W)
+    val STACKPAGE = 1.U(8.W)
+
+    when(state in(ABSX1, INDX3, INDY2, JMP1, JMPI1, RTI4, ABS1)) {
+      io.AB := Cat(DIMUX, ADD)
     }
-    .elsewhen(state in ABS0) {
-      state := ABS1
+      .elsewhen(state in(BRA2, INDY3, ABSX2)) {
+        io.AB := Cat(ADD, ABL)
+      }
+      .elsewhen(state in BRA1) {
+        io.AB := Cat(ABH, ADD)
+      }
+      .elsewhen(state in(JSR0, PUSH1, RTS0, RTI0, BRK0)) {
+        io.AB := Cat(STACKPAGE, regfile)
+      }
+      .elsewhen(state in(BRK1, JSR1, PULL1, RTS1, RTS2, RTI1, RTI2, RTI3, BRK2)) {
+        io.AB := Cat(STACKPAGE, ADD)
+      }
+      .elsewhen(state in(INDY1, INDX1, ZPX1, INDX2)) {
+        io.AB := Cat(ZEROPAGE, ADD)
+      }
+      .elsewhen(state in(ZP0, INDY0)) {
+        io.AB := Cat(ZEROPAGE, DIMUX)
+      }
+      .elsewhen(state in(REG, READ, WRITE)) {
+        io.AB := Cat(ABH, ABL)
+      }
+      .otherwise {
+        io.AB := PC
+      }
+
+    when(io.RDY & io.CE && state =/= PUSH0 && state =/= PUSH1 && state =/= PULL0 && state =/= PULL1 && state =/= PULL2) {
+      ABL := io.AB(7, 0)
+      ABH := io.AB(15, 8)
     }
-    .elsewhen(state in ABS1) {
-      state := Mux(write_back,READ,FETCH)
+
+    when(state in WRITE) {
+      io.DO := ADD
     }
-    .elsewhen(state in ABSX0) {
-      state := ABSX1
+    .elsewhen(state in(JSR0, BRK0)) {
+      io.DO := PCH
     }
-    .elsewhen(state in ABSX1) {
-      state := Mux(CO | store | write_back, ABSX2, FETCH)
-    }
-    .elsewhen(state in ABSX2) {
-      state := Mux(write_back, READ, FETCH)
-    }
-    .elsewhen(state in INDX0) {
-      state := INDX1
-    }
-    .elsewhen(state in INDX1) {
-      state := INDX2
-    }
-    .elsewhen(state in INDX2) {
-      state := INDX3
-    }
-    .elsewhen(state in INDX3) {
-      state := FETCH
-    }
-    .elsewhen(state in INDY0) {
-      state := INDY1
-    }
-    .elsewhen(state in INDY1) {
-      state := INDY2
-    }
-    .elsewhen(state in INDY2) {
-      state := Mux(CO | store, INDY3, FETCH)
-    }
-    .elsewhen(state in INDY3) {
-      state := FETCH
-    }
-    .elsewhen(state in READ) {
-      state := WRITE
-    }
-    .elsewhen(state in WRITE) {
-      state := FETCH
-    }
-    .elsewhen(state in FETCH) {
-      state := DECODE
-    }
-    .elsewhen(state in REG) {
-      state := DECODE
-    }
-    .elsewhen(state in PUSH0) {
-      state := PUSH1
+    .elsewhen(state in(JSR1, BRK1)) {
+      io.DO := PCL
     }
     .elsewhen(state in PUSH1) {
-      state := DECODE
-    }
-    .elsewhen(state in PULL0) {
-      state := PULL1
-    }
-    .elsewhen(state in PULL1) {
-      state := PULL2
-    }
-    .elsewhen(state in PULL2) {
-      state := DECODE
-    }
-    .elsewhen(state in JSR0) {
-      state := JSR1
-    }
-    .elsewhen(state in JSR1) {
-      state := JSR2
-    }
-    .elsewhen(state in JSR2) {
-      state := JSR3
-    }
-    .elsewhen(state in JSR3) {
-      state := FETCH
-    }
-    .elsewhen(state in RTI0) {
-      state := RTI1
-    }
-    .elsewhen(state in RTI1) {
-      state := RTI2
-    }
-    .elsewhen(state in RTI2) {
-      state := RTI3
-    }
-    .elsewhen(state in RTI3) {
-      state := RTI4
-    }
-    .elsewhen(state in RTI4) {
-      state := DECODE
-    }
-    .elsewhen(state in RTS0) {
-      state := RTS1
-    }
-    .elsewhen(state in RTS1) {
-      state := RTS2
-    }
-    .elsewhen(state in RTS2) {
-      state := RTS3
-    }
-    .elsewhen(state in RTS3) {
-      state := FETCH
-    }
-    .elsewhen(state in BRA0) {
-      state := Mux(cond_true, BRA1, DECODE)
-    }
-    .elsewhen(state in BRA1) {
-      state := Mux(CO ^ backwards, BRA2, DECODE)
-    }
-    .elsewhen(state in BRA2) {
-      state := DECODE
-    }
-    .elsewhen(state in JMP0) {
-      state := JMP1
-    }
-    .elsewhen(state in JMP1) {
-      state := DECODE
-    }
-    .elsewhen(state in JMPI0) {
-      state := JMPI1
-    }
-    .elsewhen(state in JMPI1) {
-      state := JMP0
-    }
-    .elsewhen(state in BRK0) {
-      state := BRK1
-    }
-    .elsewhen(state in BRK1) {
-      state := BRK2
+      io.DO := Mux(php, P, ADD)
     }
     .elsewhen(state in BRK2) {
-      state := BRK3
-    }
-    .elsewhen(state in BRK3) {
-      state := JMP0
-    }
-  }
-
-  when(state in DECODE) {
-    res := 0.B
-  }
-
-  when((state in DECODE) && io.RDY) {
-    load_reg := (IR in (BitPat("b0??0_1010"),BitPat("b0???_??01"), BitPat("b100?_10?0"), BitPat("b1010_???0"), BitPat("b1011_1010"), BitPat("b1011_?1?0"), BitPat("b1100_1010"), BitPat("b1?1?_??01"), BitPat("b???0_1000")))
-  }
-
-  when((state in DECODE) && io.RDY) {
-    when(IR in (BitPat("b1110_1000"), BitPat("b1100_1010"), BitPat("b101?_??10"))) {
-      dst_reg := SEL_X
-    }
-    .elsewhen(IR in (BitPat("b0?00_1000"), BitPat("b1001_1010"))) {
-      dst_reg := SEL_S
-    }
-    .elsewhen(IR in(BitPat("b1?00_1000"), BitPat("b101?_?100"), BitPat("b1010_?000"))) {
-      dst_reg := SEL_Y
+      io.DO := Mux((io.IRQ | NMI_edge), P & "b11101111".U(8.W), P)
     }
     .otherwise {
-      dst_reg := SEL_A
+      io.DO := regfile
     }
+
+    when(state in(BRK0, BRK1, BRK2, JSR0, JSR1, PUSH1, WRITE)) {
+      io.WE := 1.B
+    }
+      .elsewhen(state in(INDX3, INDY3, ABSX2, ABS1, ZPX1, ZP0)) {
+        io.WE := store
+      }
+      .otherwise {
+        io.WE := 0.B
+      }
+
+    val write_register = Wire(Bool())
+
+    when(state in DECODE) {
+      write_register := load_reg & ~plp
+    }
+      .elsewhen(state in(PULL1, RTS2, RTI3, BRK3, JSR0, JSR2)) {
+        write_register := 1.B
+      }
+      .otherwise {
+        write_register := 0.B
+      }
+
+    adj_bcd := 0.B
+
+    val adjl = Wire(UInt(4.W))
+    val adjh = Wire(UInt(4.W))
+
+    adjl := Lookup(Cat(adj_bcd, adc_bcd, HC), 0.U, IndexedSeq(
+      BitPat("b100") -> 10.U,
+      BitPat("b111") -> 6.U
+    ))
+
+    adjh := Lookup(Cat(adj_bcd, adc_bcd, CO), 0.U, IndexedSeq(
+      BitPat("b100") -> 10.U,
+      BitPat("b111") -> 6.U
+    ))
+
+    when(write_register & io.RDY) {
+      AXYS(regsel) := Mux(state in JSR0, DIMUX, Cat(ADD(7, 4) + adjh, ADD(3, 0) + adjl))
+    }
+
+    when(state in(INDY1, INDX0, ZPX0, ABSX0)) {
+      regsel := Mux(index_y, SEL_Y, SEL_X)
+    }
+      .elsewhen(state in DECODE) {
+        regsel := dst_reg
+      }
+      .elsewhen(state in(BRK0, BRK3, JSR0, JSR2, PULL0, PULL1, PUSH1, RTI0, RTI3, RTS0, RTS2)) {
+        regsel := SEL_S
+      }
+      .otherwise {
+        regsel := src_reg
+      }
+
+    val alu: ALU = Module(new ALU())
+    alu.io.op := alu_op
+    alu.io.right := alu_shift_right
+    alu.io.AI := AIMUX
+    alu.io.BI := BIMUX
+    alu.io.CI := CI
+    alu.io.BCD := /*adc_bcd & (state in FETCH)*/ false.B // BCD Disabled in NES CPU.
+    CO := alu.io.CO
+  val outHold = RegInit(0.U(8.W))
+  when(RegNext(io.CE)) {
+    outHold := alu.io.OUT
   }
 
-  when((state in DECODE) && io.RDY) {
-    when(IR in BitPat("b1011_1010")) {
-      src_reg := SEL_S
+  ADD := alu.io.OUT
+    AV := alu.io.V
+    AZ := alu.io.Z
+    AN := alu.io.N
+    HC := alu.io.HC
+    alu.io.RDY := io.RDY
+
+    when(state in(FETCH, REG, READ)) {
+      alu_op := op
     }
-    .elsewhen(IR in (BitPat("b100?_?110"), BitPat("b100?_1?10"),BitPat("b1110_??00"),BitPat("b1100_1010"))) {
-      src_reg := SEL_X
+      .elsewhen(state in BRA1) {
+        alu_op := Mux(backwards, OP_SUB, OP_ADD)
+      }
+      .elsewhen(state in(PUSH1, BRK0, BRK1, BRK2, JSR0, JSR1)) {
+        alu_op := OP_SUB
+      }
+      .otherwise {
+        alu_op := OP_ADD
+      }
+
+    when(state in(FETCH, REG, READ)) {
+      alu_shift_right := shift_right
     }
-    .elsewhen(IR in (BitPat("b100?_?100"), BitPat("b1001_1000"), BitPat("b1100_??00"), BitPat("b1?00_1000"))) {
-      src_reg := SEL_Y
+      .otherwise {
+        alu_shift_right := 0.U
+      }
+
+    when(io.RDY & io.CE) {
+      backwards := DIMUX(7)
+    }
+
+    when(state in(JSR1, RTS1, RTI1, RTI2, BRK1, BRK2, INDX1)) {
+      AI := ADD
+    }
+    .elsewhen(state in(REG, ZPX0, INDX0, ABSX0, RTI0, RTS0, JSR0, JSR2, BRK0, PULL0, INDY1, PUSH0, PUSH1)) {
+      AI := regfile
+    }
+    .elsewhen(state in(BRA0, READ)) {
+      AI := DIMUX
+    }
+    .elsewhen(state in BRA1) {
+      AI := ABH
+    }
+    .elsewhen(state in FETCH) {
+      AI := Mux(load_only, 0.U, regfile)
     }
     .otherwise {
-      src_reg := SEL_A
+      AI := 0.U
     }
-  }
 
-  when((state in DECODE) && io.RDY) {
-    index_y := (IR in (BitPat("b???1_0001"), BitPat("b10?1_?110"), BitPat("b????_1001")))
-  }
-
-  when((state in DECODE) && io.RDY) {
-    store := (IR in (BitPat("b100?_?1?0"), BitPat("b100?_??01")))
-  }
-
-  when((state in DECODE) && io.RDY) {
-    write_back := (IR in (BitPat("b0???_?110"), BitPat("b11??_?110")))
-  }
-
-  when((state in DECODE) && io.RDY) {
-    load_only := (IR in BitPat("b101?_????"))
-  }
-
-  when((state in DECODE) && io.RDY) {
-    inc := (IR in (BitPat("b111??110"), BitPat("b11?01000")))
-  }
-
-  when((state in (DECODE,BRK0)) && io.RDY) {
-    adc_sbc := (IR in BitPat("b?11?_??01"))
-  }
-
-  when((state in(DECODE, BRK0)) && io.RDY) {
-    adc_bcd := Mux(IR in BitPat("b011?_??01"), D, 0.U)
-  }
-
-  when((state in DECODE) && io.RDY) {
-    shift := (IR in (BitPat("b0???_?110"), BitPat("b0??0_1010"))) // last BitPat changed from b0???_1010 to b0??0_1010 to fix unofficial nops.
-  }
-
-  when((state in DECODE) && io.RDY) {
-    compare := (IR in (BitPat("b11?0_0?00"), BitPat("b11?0_1100"), BitPat("b110?_??01")))
-  }
-
-  when((state in DECODE) && io.RDY) {
-    shift_right := (IR in BitPat("b01??_??10"))
-  }
-
-  when((state in DECODE) && io.RDY) {
-    rotate := (IR in (BitPat("b0?1?_1010"), BitPat("b0?1?_?110")))
-  }
-
-  when((state in DECODE) && io.RDY) {
-    when(IR in BitPat("b00??_??10")) {
-      op := OP_ROL
+    when(RegNext(io.CE)) {
+      AIHOLD := AI
+      BIHOLD := BI
     }
-    .elsewhen(IR in BitPat("b0010_?100")) {
-      op := OP_AND
+
+  AIMUX := Mux(io.CE ,AIHOLD,AI)
+  BIMUX := Mux(io.CE ,BIHOLD,BI)
+
+    when(state in(BRA1, RTS1, RTI0, RTI1, RTI2, INDX1, READ, REG, JSR0, JSR1, JSR2, BRK0, BRK1, BRK2, PUSH0, PUSH1, PULL0, RTS0)) {
+      BI := 0.U
     }
-    .elsewhen(IR in BitPat("b01??_??10")) {
-      op := OP_A
-    }
-    .elsewhen(IR in (BitPat("b1000_1000"), BitPat("b1100_1010"), BitPat("b110?_?110"), BitPat("b11??_??01"), BitPat("b11?0_0?00"), BitPat("b11?0_1100"))) {
-      op := OP_SUB
-    }
-    .elsewhen(IR in(BitPat("b010?_??01"), BitPat("b00??_??01"))) {
-      op := Cat(3.U(2.W), IR(6,5))
+    .elsewhen(state in BRA0) {
+      BI := PCL
     }
     .otherwise {
-      op := OP_ADD
+      BI := DIMUX
     }
-  }
 
-  when((state in DECODE) && io.RDY) {
-    bit_ins := IR in BitPat("b0010_?100")
-  }
+    when(state in(INDY2, BRA1, ABSX1)) {
+      CI := CO
+    }
+    .elsewhen(state in(READ, REG)) {
+      CI := Mux(rotate, C, Mux(shift, 0.U, inc))
+    }
+    .elsewhen(state in FETCH) {
+      CI := Mux(rotate, C, Mux(compare, 1.U, Mux(shift | load_only, 0.U, C)))
+    }
+    .elsewhen(state in(PULL0, RTI0, RTI1, RTI2, RTS0, RTS1, INDY0, INDX1)) {
+      CI := 1.U
+    }
+    .otherwise {
+      CI := 0.U
+    }
 
-  when((state in DECODE) && io.RDY) {
-    php := (IR === 0x08.U)
-    clc := (IR === 0x18.U)
-    plp := (IR === 0x28.U)
-    sec := (IR === 0x38.U)
-    cli := (IR === 0x58.U)
-    sei := (IR === 0x78.U)
-    clv := (IR === 0xb8.U)
-    cld := (IR === 0xd8.U)
-    sed := (IR === 0xf8.U)
-    brk := (IR === 0x00.U)
-  }
+    when(io.CE) {
+      when(shift && (state in WRITE)) {
+        C := CO
+      }
+      .elsewhen(state in RTI2) {
+        C := DIMUX(0)
+      }
+      .elsewhen(~write_back & (state in DECODE)) {
+        when(adc_sbc | shift | compare) {
+          C := CO
+        }
+        .elsewhen(plp) {
+          C := ADD(0)
+        }
+        .otherwise {
+          when(sec) {
+            C := 1.U
+          }
+          when(clc) {
+            C := 0.U
+          }
+        }
+      }
 
-  when(io.RDY) {
-    cond_code := IR(7,5)
-  }
+      when(state in WRITE) {
+        Z := AZ
+      }
+      .elsewhen(state in RTI2) {
+        Z := DIMUX(1)
+      }
+      .elsewhen(state in DECODE) {
+        when(plp) {
+          Z := ADD(1)
+        }
+          .elsewhen((load_reg & (regsel =/= SEL_S)) | compare | bit_ins) {
+            Z := AZ
+          }
+      }
 
-  cond_true := MuxLookup(cond_code,0.U,IndexedSeq(
-    0.U -> ~N,
-    1.U -> N,
-    2.U -> ~V,
-    3.U -> V,
-    4.U -> ~C,
-    5.U -> C,
-    6.U -> ~Z,
-    7.U -> Z
-  ))
+      when(state in WRITE) {
+        N := AN
+      }
+        .elsewhen(state in RTI2) {
+          N := DIMUX(7)
+        }
+        .elsewhen(state in DECODE) {
+          when(plp) {
+            N := ADD(7)
+          }
+            .elsewhen((load_reg & (regsel =/= SEL_S)) | compare) {
+              N := AN
+            }
+        }
+        .elsewhen((state in FETCH) && bit_ins) {
+          N := DIMUX(7)
+        }
 
-val NMI_1 = RegNext(io.NMI,0.B)
+      when(state in BRK3) {
+        I := 1.U
+      }
+        .elsewhen(state in RTI2) {
+          I := DIMUX(2)
+        }
+        .elsewhen(state in REG) {
+          when(sei) {
+            I := 1.U
+          }
+          when(cli) {
+            I := 0.U
+          }
+        }
+        .elsewhen(state in DECODE) {
+          when(plp) {
+            I := ADD(2)
+          }
+        }
 
-  when(NMI_edge && (state in BRK3)) {
-    NMI_edge := 0.B
-  }
-  .elsewhen(io.NMI & ~NMI_1) {
-    NMI_edge := 1.B
-  }
+      when(state in RTI2) {
+        D := DIMUX(3)
+      }
+        .elsewhen(state in DECODE) {
+          when(sed) {
+            D := 1.U
+          }
+          when(cld) {
+            D := 0.U
+          }
+          when(plp) {
+            D := ADD(3)
+          }
+        }
+
+      when(state in RTI2) {
+        V := DIMUX(6)
+      }
+        .elsewhen(state in DECODE) {
+          when(adc_sbc) {
+            V := AV
+          }
+          when(clv) {
+            V := 0.U
+          }
+          when(plp) {
+            V := ADD(6)
+          }
+        }
+        .elsewhen((state in FETCH) & bit_ins) {
+          V := DIMUX(6)
+        }
+    }
+
+    when(io.RDY & io.CE) {
+      when(state in(PULL0, PUSH0)) {
+        IRHOLD := DIMUX
+        IRHOLD_valid := 1.B
+      }
+        .elsewhen(state in DECODE) {
+          IRHOLD_valid := 0.B
+        }
+    }
+
+    IR := Mux((io.IRQ & ~I) | NMI_edge, 0.U, Mux(IRHOLD_valid, IRHOLD, DIMUX))
+
+    when(io.RDY) {
+      DIHOLD := io.DI
+    }
+
+    DIMUX := Mux(!io.RDY || !RegNext(io.CE), DIHOLD, io.DI)
+
+
+    when(io.RDY & io.CE) {
+      when(state in DECODE) {
+        state := Lookup(IR, state, IndexedSeq(
+          BitPat("b0000_0000") -> BRK0,
+          BitPat("b0010_0000") -> JSR0,
+          BitPat("b0010_1100") -> ABS0, // BIT abs
+          BitPat("b0100_0000") -> RTI0,
+          BitPat("b0100_1100") -> JMP0,
+          BitPat("b0110_0000") -> RTS0,
+          BitPat("b0110_1100") -> JMPI0,
+          BitPat("b0?00_1000") -> PUSH0,
+          BitPat("b0?10_1000") -> PULL0,
+          BitPat("b0??1_1000") -> REG, // CLC, SEC, CLI, SEI
+          BitPat("b1??0_00?0") -> FETCH, // IMM
+          BitPat("b1??0_1100") -> ABS0, // X/Y abs
+          BitPat("b1???_1000") -> REG, // DEY, TYA, ...
+          BitPat("b???0_0001") -> INDX0,
+          BitPat("b???0_01??") -> ZP0,
+          BitPat("b???0_1001") -> FETCH, // IMM
+          BitPat("b???0_1101") -> ABS0, // even E column
+          BitPat("b???0_1110") -> ABS0, // even E column
+          BitPat("b???1_0000") -> BRA0, // odd 0 column
+          BitPat("b???1_0001") -> INDY0, // odd 1 column
+          BitPat("b???1_01??") -> ZPX0, // odd 4,5,6,7 columns
+          BitPat("b???1_1001") -> ABSX0, // odd 9 column
+          BitPat("b???1_11??") -> ABSX0, // odd C, D, E, F columns
+          BitPat("b????_1010") -> REG // <shift> A, TXA, ...  NOP
+        ))
+      }
+        .elsewhen(state in ZP0) {
+          state := Mux(write_back, READ, FETCH)
+        }.elsewhen(state in ZPX0) {
+        state := ZPX1
+      }
+        .elsewhen(state in ZPX1) {
+          state := Mux(write_back, READ, FETCH)
+        }
+        .elsewhen(state in ABS0) {
+          state := ABS1
+        }
+        .elsewhen(state in ABS1) {
+          state := Mux(write_back, READ, FETCH)
+        }
+        .elsewhen(state in ABSX0) {
+          state := ABSX1
+        }
+        .elsewhen(state in ABSX1) {
+          state := Mux(CO | store | write_back, ABSX2, FETCH)
+        }
+        .elsewhen(state in ABSX2) {
+          state := Mux(write_back, READ, FETCH)
+        }
+        .elsewhen(state in INDX0) {
+          state := INDX1
+        }
+        .elsewhen(state in INDX1) {
+          state := INDX2
+        }
+        .elsewhen(state in INDX2) {
+          state := INDX3
+        }
+        .elsewhen(state in INDX3) {
+          state := FETCH
+        }
+        .elsewhen(state in INDY0) {
+          state := INDY1
+        }
+        .elsewhen(state in INDY1) {
+          state := INDY2
+        }
+        .elsewhen(state in INDY2) {
+          state := Mux(CO | store, INDY3, FETCH)
+        }
+        .elsewhen(state in INDY3) {
+          state := FETCH
+        }
+        .elsewhen(state in READ) {
+          state := WRITE
+        }
+        .elsewhen(state in WRITE) {
+          state := FETCH
+        }
+        .elsewhen(state in FETCH) {
+          state := DECODE
+        }
+        .elsewhen(state in REG) {
+          state := DECODE
+        }
+        .elsewhen(state in PUSH0) {
+          state := PUSH1
+        }
+        .elsewhen(state in PUSH1) {
+          state := DECODE
+        }
+        .elsewhen(state in PULL0) {
+          state := PULL1
+        }
+        .elsewhen(state in PULL1) {
+          state := PULL2
+        }
+        .elsewhen(state in PULL2) {
+          state := DECODE
+        }
+        .elsewhen(state in JSR0) {
+          state := JSR1
+        }
+        .elsewhen(state in JSR1) {
+          state := JSR2
+        }
+        .elsewhen(state in JSR2) {
+          state := JSR3
+        }
+        .elsewhen(state in JSR3) {
+          state := FETCH
+        }
+        .elsewhen(state in RTI0) {
+          state := RTI1
+        }
+        .elsewhen(state in RTI1) {
+          state := RTI2
+        }
+        .elsewhen(state in RTI2) {
+          state := RTI3
+        }
+        .elsewhen(state in RTI3) {
+          state := RTI4
+        }
+        .elsewhen(state in RTI4) {
+          state := DECODE
+        }
+        .elsewhen(state in RTS0) {
+          state := RTS1
+        }
+        .elsewhen(state in RTS1) {
+          state := RTS2
+        }
+        .elsewhen(state in RTS2) {
+          state := RTS3
+        }
+        .elsewhen(state in RTS3) {
+          state := FETCH
+        }
+        .elsewhen(state in BRA0) {
+          state := Mux(cond_true, BRA1, DECODE)
+        }
+        .elsewhen(state in BRA1) {
+          state := Mux(CO ^ backwards, BRA2, DECODE)
+        }
+        .elsewhen(state in BRA2) {
+          state := DECODE
+        }
+        .elsewhen(state in JMP0) {
+          state := JMP1
+        }
+        .elsewhen(state in JMP1) {
+          state := DECODE
+        }
+        .elsewhen(state in JMPI0) {
+          state := JMPI1
+        }
+        .elsewhen(state in JMPI1) {
+          state := JMP0
+        }
+        .elsewhen(state in BRK0) {
+          state := BRK1
+        }
+        .elsewhen(state in BRK1) {
+          state := BRK2
+        }
+        .elsewhen(state in BRK2) {
+          state := BRK3
+        }
+        .elsewhen(state in BRK3) {
+          state := JMP0
+        }
+    }
+
+    when(state in DECODE) {
+      res := 0.B
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      load_reg := (IR in(BitPat("b0??0_1010"), BitPat("b0???_??01"), BitPat("b100?_10?0"), BitPat("b1010_???0"), BitPat("b1011_1010"), BitPat("b1011_?1?0"), BitPat("b1100_1010"), BitPat("b1?1?_??01"), BitPat("b???0_1000")))
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      when(IR in(BitPat("b1110_1000"), BitPat("b1100_1010"), BitPat("b101?_??10"))) {
+        dst_reg := SEL_X
+      }
+        .elsewhen(IR in(BitPat("b0?00_1000"), BitPat("b1001_1010"))) {
+          dst_reg := SEL_S
+        }
+        .elsewhen(IR in(BitPat("b1?00_1000"), BitPat("b101?_?100"), BitPat("b1010_?000"))) {
+          dst_reg := SEL_Y
+        }
+        .otherwise {
+          dst_reg := SEL_A
+        }
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      when(IR in BitPat("b1011_1010")) {
+        src_reg := SEL_S
+      }
+        .elsewhen(IR in(BitPat("b100?_?110"), BitPat("b100?_1?10"), BitPat("b1110_??00"), BitPat("b1100_1010"))) {
+          src_reg := SEL_X
+        }
+        .elsewhen(IR in(BitPat("b100?_?100"), BitPat("b1001_1000"), BitPat("b1100_??00"), BitPat("b1?00_1000"))) {
+          src_reg := SEL_Y
+        }
+        .otherwise {
+          src_reg := SEL_A
+        }
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      index_y := (IR in(BitPat("b???1_0001"), BitPat("b10?1_?110"), BitPat("b????_1001")))
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      store := (IR in(BitPat("b100?_?1?0"), BitPat("b100?_??01")))
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      write_back := (IR in(BitPat("b0???_?110"), BitPat("b11??_?110")))
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      load_only := (IR in BitPat("b101?_????"))
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      inc := (IR in(BitPat("b111??110"), BitPat("b11?01000")))
+    }
+
+    when((state in(DECODE, BRK0)) && io.RDY & io.CE) {
+      adc_sbc := (IR in BitPat("b?11?_??01"))
+    }
+
+    when((state in(DECODE, BRK0)) && io.RDY & io.CE) {
+      adc_bcd := Mux(IR in BitPat("b011?_??01"), D, 0.U)
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      shift := (IR in(BitPat("b0???_?110"), BitPat("b0??0_1010"))) // last BitPat changed from b0???_1010 to b0??0_1010 to fix unofficial nops.
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      compare := (IR in(BitPat("b11?0_0?00"), BitPat("b11?0_1100"), BitPat("b110?_??01")))
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      shift_right := (IR in BitPat("b01??_??10"))
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      rotate := (IR in(BitPat("b0?1?_1010"), BitPat("b0?1?_?110")))
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      when(IR in BitPat("b00??_??10")) {
+        op := OP_ROL
+      }
+        .elsewhen(IR in BitPat("b0010_?100")) {
+          op := OP_AND
+        }
+        .elsewhen(IR in BitPat("b01??_??10")) {
+          op := OP_A
+        }
+        .elsewhen(IR in(BitPat("b1000_1000"), BitPat("b1100_1010"), BitPat("b110?_?110"), BitPat("b11??_??01"), BitPat("b11?0_0?00"), BitPat("b11?0_1100"))) {
+          op := OP_SUB
+        }
+        .elsewhen(IR in(BitPat("b010?_??01"), BitPat("b00??_??01"))) {
+          op := Cat(3.U(2.W), IR(6, 5))
+        }
+        .otherwise {
+          op := OP_ADD
+        }
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      bit_ins := IR in BitPat("b0010_?100")
+    }
+
+    when((state in DECODE) && io.RDY & io.CE) {
+      php := (IR === 0x08.U)
+      clc := (IR === 0x18.U)
+      plp := (IR === 0x28.U)
+      sec := (IR === 0x38.U)
+      cli := (IR === 0x58.U)
+      sei := (IR === 0x78.U)
+      clv := (IR === 0xb8.U)
+      cld := (IR === 0xd8.U)
+      sed := (IR === 0xf8.U)
+      brk := (IR === 0x00.U)
+    }
+
+    when(io.RDY & io.CE) {
+      cond_code := IR(7, 5)
+    }
+
+    cond_true := MuxLookup(cond_code, 0.U, IndexedSeq(
+      0.U -> ~N,
+      1.U -> N,
+      2.U -> ~V,
+      3.U -> V,
+      4.U -> ~C,
+      5.U -> C,
+      6.U -> ~Z,
+      7.U -> Z
+    ))
+
+    val NMI_1 = RegNext(io.NMI,0.B)
+
+    when(NMI_edge && (state in BRK3)) {
+      NMI_edge := 0.B
+    }
+    .elsewhen(io.NMI & ~NMI_1) {
+      NMI_edge := 1.B
+    }
 }

@@ -1,0 +1,54 @@
+package ee.catgirl.nes.apu
+
+import chisel3._
+import chisel3.util._
+
+object LengthCounterLUT {
+    def apply(in: UInt) : UInt = {
+        val lcl = Module(new LengthCounterLUT) 
+        lcl.io.in := in
+        lcl.io.out
+    }
+}
+
+class LengthCounterLUT extends Module  {
+    val io = IO(new Bundle {
+        val in = Input(UInt(5.W))
+        val out = Output(UInt(8.W))
+    })
+    
+    io.out := MuxLookup(io.in,io.out,IndexedSeq(
+        0x00.U -> 0x0A.U,
+        0x01.U -> 0xFE.U,
+        0x02.U -> 0x14.U,
+        0x03.U -> 0x02.U,
+        0x04.U -> 0x28.U,
+        0x05.U -> 0x04.U,
+        0x06.U -> 0x50.U,
+        0x07.U -> 0x06.U,
+        0x08.U -> 0xA0.U,
+        0x09.U -> 0x08.U,
+        0x0A.U -> 0x3C.U,
+        0x0B.U -> 0x0A.U,
+        0x0C.U -> 0x0E.U,
+        0x0D.U -> 0x0C.U,
+        0x0E.U -> 0x1A.U,
+        0x0F.U -> 0x0E.U,
+        0x10.U -> 0x0C.U,
+        0x11.U -> 0x10.U,
+        0x12.U -> 0x18.U,
+        0x13.U -> 0x12.U,
+        0x14.U -> 0x30.U,
+        0x15.U -> 0x14.U,
+        0x16.U -> 0x60.U,
+        0x17.U -> 0x16.U,
+        0x18.U -> 0xC0.U,
+        0x19.U -> 0x18.U,
+        0x1A.U -> 0x48.U,
+        0x1B.U -> 0x1A.U,
+        0x1C.U -> 0x10.U,
+        0x1D.U -> 0x1C.U,
+        0x1E.U -> 0x20.U,
+        0x1F.U -> 0x1E.U
+    ))
+}

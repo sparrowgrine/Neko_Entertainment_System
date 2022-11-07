@@ -12,7 +12,11 @@ class NROM(romInfo : ROMInfo, romData : Array[Byte]) extends Mapper(romInfo, rom
 
   val chrRomStart = prgRomEnd
   val chrRomEnd = chrRomStart + romInfo.chrROMSize*8192
-  val chrRomData = romData.slice(chrRomStart, chrRomEnd).map(b => if (b < 0) BigInt(b + 256) else BigInt(b))
+  val chrRomData = if(chrRomStart == chrRomEnd) {
+    Array.fill(8192)(BigInt(0))
+  } else {
+    romData.slice(chrRomStart, chrRomEnd).map(b => if (b < 0) BigInt(b + 256) else BigInt(b))
+  }
   val chrRom = Module(new AsyncROM("ppu_rom", chrRomData.toSeq,Some(8)))
 
   val prgRam = Mem(8192,UInt(8.W))
@@ -61,5 +65,6 @@ class NROM(romInfo : ROMInfo, romData : Array[Byte]) extends Mapper(romInfo, rom
   //TODO: PPU Support
   chrRom.io.addr := io.ppuAB
   io.ppuDO := chrRom.io.data
+  io.cpuIRQ := false.B
 
 }
