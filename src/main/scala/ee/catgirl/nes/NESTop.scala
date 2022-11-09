@@ -2,6 +2,8 @@ package ee.catgirl.nes
 
 import chisel3._
 import ee.catgirl.nes.apu.APU
+import ee.catgirl.nes.ppu.PPU
+
 
 class NESTop extends Module {
   val io = IO(new Bundle {
@@ -12,12 +14,18 @@ class NESTop extends Module {
     val cpuExtAccessRdy = Input(Bool())
     val extIrq = Input(Bool())
     val apuSample = Output(UInt(16.W))
+    val ppuBusAddr = Output(UInt(14.W))
+    val ppuDataIn = Input(UInt(8.W))
+    val ppuDataOut = Output(UInt(8.W))
+    val ppuReadStrobe = Output(Bool())
+    val ppuWriteStrobe = Output(Bool())
   })
 
   val cycleCounter = RegInit(0.U(2.W))
   cycleCounter := Mux(cycleCounter === 2.U, 0.U, cycleCounter + 1.U)
 
   val cpuComplexEnable = (cycleCounter === 2.U)
+  val ppuEnable = true.B
 
   val apu = Module(new APU())
   val dmac = Module(new DMAController())
@@ -51,7 +59,7 @@ class NESTop extends Module {
 
   cpu.io.CE := cpuComplexEnable & ~dmac.io.cpuHalt
   cpu.io.DI := dataToCPU
-  cpu.io.NMI := false.B
+  
   cpu.io.IRQ := mapperIrq | apuIrq
   cpu.io.RDY := io.cpuExtAccessRdy & cpuComplexEnable & ~dmac.io.cpuHalt
 
@@ -64,8 +72,28 @@ class NESTop extends Module {
   apu.io.RD := readStrobe & apuCS
   io.apuSample := apu.io.sample
 
+
+
+
+  val ppu = Module(new PPU)
+  ppu.io.CE := ppuEnable
+  ppu.io.cpuAddr := busAddr(2,0)
+  ppu.io.cpuReadStrobe := readStrobe
+  ppu.io.cpuWriteStrobe := writeStrobe
+  ppu.io.cpuDataIn := busData
+  cpu.io.NMI := ppu.io.nmi
+  io.ppuBusAddr := ppu.io.vramAddr
+  ppu.io.vramDataIn := io.ppuDataIn 
+  io.ppuDataOut := ppu.io.vramDataIn
+  io.ppuWriteStrobe := ppu.io.vramWriteStrobe
+  io.ppuReadStrobe := ppu.io.vramReadStrobe
+
+  val ppuCS = WireDefault(busAddr >= 0x2000.U && busAddr < 0x4000.U)
   when(apuCS) {
     dataToCPU := apu.io.dataOut
+  }
+  .elsewhen(ppuCS) {
+    dataToCPU := ppu.io.cpuDataOut
   }
   .otherwise {
     dataToCPU := io.cpuBusDataIn

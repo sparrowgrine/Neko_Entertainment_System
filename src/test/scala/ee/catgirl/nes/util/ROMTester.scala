@@ -73,7 +73,11 @@ class ROMTester(val romPath : String) extends BasicTester with RequireSyncReset 
     nes.io.cpuBusDataIn := mapper.io.cpuDO
     nes.io.cpuExtAccessRdy := mapper.io.cpuRDY
     nes.io.extIrq := mapper.io.cpuIRQ
-
+    mapper.io.ppuAB := nes.io.ppuBusAddr
+    mapper.io.ppuDI := nes.io.ppuDataOut
+    nes.io.ppuDataIn := mapper.io.ppuDO
+    mapper.io.ppuRD := nes.io.ppuReadStrobe
+    mapper.io.ppuWR := nes.io.ppuWriteStrobe
 
     when(!debugPrintBegin.asUInt.andR) {
       when((nes.io.cpuBusDataOut === 0xDE.U) & (nes.io.cpuBusAddr === 0x6001.U) & nes.io.cpuBusWE) {
@@ -132,11 +136,5 @@ class ROMTester(val romPath : String) extends BasicTester with RequireSyncReset 
       printf("apuSample: %x\n", nes.io.apuSample)
     }
   }
-
-  //TODO: PPU Support
-  mapper.io.ppuAB := 0.U
-  mapper.io.ppuDI := 0.U
-  mapper.io.ppuRD := 0.B
-  mapper.io.ppuWR := 0.B
 
 }
